@@ -364,12 +364,11 @@
 
     <div class="notification" id="notification"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script type="module">
     // استيراد الوظائف من SDK
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-app.js";
-    import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, addDoc } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore.js";
+    import { getFirestore, collection, getDocs, setDoc, doc } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore.js";
 
     // إعداد Firebase
     const firebaseConfig = {
@@ -390,21 +389,6 @@
     let bankData = [];
     let transactionHistory = [];
 
-    // حفظ البيانات في Firestore
-    async function saveData() {
-        await Promise.all(bankData.map(async (member) => {
-            await setDoc(doc(db, "bankData", member.title), member);
-        }));
-        await saveTransactionHistory();
-    }
-
-    // حفظ تاريخ المعاملات
-    async function saveTransactionHistory() {
-        await Promise.all(transactionHistory.map(async (transaction) => {
-            await addDoc(collection(db, "transactionHistory"), transaction);
-        }));
-    }
-
     // جلب البيانات من Firestore
     async function fetchData() {
         const querySnapshot = await getDocs(collection(db, "bankData"));
@@ -415,6 +399,17 @@
         updateAllData();
     }
 
+    // حفظ البيانات في Firestore
+    async function saveData() {
+        const batch = writeBatch(db);
+        bankData.forEach(member => {
+            const memberRef = doc(db, "bankData", member.title);
+            batch.set(memberRef, member);
+        });
+        await batch.commit();
+    }
+
+    // جلب تاريخ المعاملات
     async function fetchTransactions() {
         const querySnapshot = await getDocs(collection(db, "transactionHistory"));
         transactionHistory = [];
@@ -445,7 +440,59 @@
         });
     }
 
-    // Populate transaction history
+    // Handle admin form submission
+    document.getElementById("adminForm").addEventListener("submit", async function(e) {
+        e.preventDefault();
+        const password = document.getElementById("adminPassword").value;
+        const actionType = document.getElementById("actionType").value;
+        const title = document.getElementById("titleInput").value;
+        const balance = parseInt(document.getElementById("balanceInput").value) || 0;
+
+        // Check password
+        if (CryptoJS.SHA256(password).toString() !== adminPasswordHash) {
+            showNotification("كلمة المرور غير صحيحة", "error");
+            return;
+        }
+
+        switch (actionType) {
+            case "add":
+                const newMember = { title, balance, level: Math.floor(balance / 2000) + 1 };
+                bankData.push(newMember);
+                await saveData();
+                addTransaction(`إضافة حساب جديد: ${title}`, balance);
+                break;
+            case "edit":
+                const member = bankData.find(m => m.title === title);
+                if (member) {
+                    const oldBalance = member.balance;
+                    member.balance = balance;
+                    member.level = Math.floor(balance / 2000) + 1;
+                    await saveData();
+                    addTransaction(`تعديل رصيد ${title}`, balance - oldBalance);
+                } else {
+                    showNotification("اللقب غير موجود", "error");
+                    return;
+                }
+                break;
+            case "delete":
+                const index = bankData.findIndex(m => m.title === title);
+                if (index !== -1) {
+                    bankData.splice(index, 1);
+                    await saveData();
+                    addTransaction(`حذف حساب: ${title}`, 0);
+                } else {
+                    showNotification("اللقب غير موجود", "error");
+                    return;
+                }
+                break;
+        }
+
+        updateAllData();
+        showNotification("تم تنفيذ العملية بنجاح", "success");
+        document.getElementById("adminForm").reset();
+    });
+
+    // Update transaction history display
     function updateTransactionHistory() {
         const historyContainer = document.getElementById("transactionHistory");
         historyContainer.innerHTML = "";
@@ -461,32 +508,6 @@
         });
     }
 
-    // Handle admin form submission
-    document.getElementById("adminForm").addEventListener("submit", async function(e) {
-        e.preventDefault();
-        const title = document.getElementById("titleInput").value;
-        const balance = parseInt(document.getElementById("balanceInput").value) || 0;
-
-        // إضافة حساب جديد
-        const newMember = { title, balance, level: Math.floor(balance / 2000) + 1 };
-        bankData.push(newMember);
-        await saveData();
-        addTransaction(`إضافة حساب جديد: ${title}`, balance);
-        updateAllData();
-        document.getElementById("adminForm").reset();
-    });
-
-    // Add transaction to history
-    function addTransaction(description, amount) {
-        const transaction = {
-            description,
-            amount,
-            date: new Date().toLocaleString('ar-SA')
-        };
-        transactionHistory.unshift(transaction);
-        updateTransactionHistory();
-    }
-
     // Update all data and UI components
     function updateAllData() {
         populateBankTable();
@@ -499,6 +520,7 @@
         await fetchTransactions();
     });
 </script>
+
 
 </body>
 </html>
