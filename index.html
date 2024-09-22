@@ -366,10 +366,9 @@
 
  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script type="module">
-    // استيراد الوظائف من SDK
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-app.js";
     import { getFirestore, collection, getDocs, setDoc, doc, writeBatch } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore.js";
-
+    
     // إعداد Firebase
     const firebaseConfig = {
         apiKey: "AIzaSyDNjXTSpmGRhBTRZILfNpNWlNRbSgMLn-Y",
@@ -385,9 +384,22 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // بيانات البنك
+    // Load bank data from Firestore or use default values
     let bankData = [];
     let transactionHistory = [];
+
+    // Admin password (hashed)
+    const adminPasswordHash = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"; // "password" hashed with SHA-256
+
+    // Save data to Firestore
+    async function saveData() {
+        const batch = writeBatch(db);
+        bankData.forEach(member => {
+            const memberRef = doc(db, "bankData", member.title);
+            batch.set(memberRef, member);
+        });
+        await batch.commit();
+    }
 
     // جلب البيانات من Firestore
     async function fetchData() {
@@ -399,23 +411,13 @@
         updateAllData();
     }
 
-    // حفظ البيانات في Firestore
-    async function saveData() {
-        const batch = writeBatch(db);
-        bankData.forEach(member => {
-            const memberRef = doc(db, "bankData", member.title);
-            batch.set(memberRef, member);
-        });
-        await batch.commit();
-    }
-
     // Populate bank table
     function populateBankTable() {
         const tableBody = document.querySelector("#bankTable tbody");
         tableBody.innerHTML = "";
         bankData.forEach(member => {
-            const progressPercentage = (member.balance % 2000) / 2000 * 100;
             const row = document.createElement("tr");
+            const progressPercentage = (member.balance % 2000) / 2000 * 100;
             row.innerHTML = `
                 <td>${member.title}</td>
                 <td>${member.balance.toLocaleString()}</td>
@@ -427,6 +429,26 @@
                 </td>
             `;
             tableBody.appendChild(row);
+        });
+    }
+
+    // Populate leaderboard
+    function populateLeaderboard() {
+        const leaderboardList = document.getElementById("leaderboardList");
+        leaderboardList.innerHTML = "";
+        bankData.sort((a, b) => b.balance - a.balance).slice(0, 5).forEach((member, index) => {
+            const col = document.createElement("div");
+            col.className = "col-md-4 mb-4";
+            col.innerHTML = `
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">#${index + 1} ${member.title}</h5>
+                        <p class="card-text">الرصيد: ${member.balance.toLocaleString()}</p>
+                        <p class="card-text">المستوى: ${member.level}</p>
+                    </div>
+                </div>
+            `;
+            leaderboardList.appendChild(col);
         });
     }
 
@@ -488,6 +510,61 @@
         document.getElementById("adminForm").reset();
     });
 
+    // Show transfer panel
+    function showTransferPanel() {
+        const transferPanel = new bootstrap.Modal(document.getElementById('transferPanel'));
+        const fromAccount = document.getElementById('fromAccount');
+        const toAccount = document.getElementById('toAccount');
+        
+        // Clear previous options
+        fromAccount.innerHTML = '<option value="">اختر الحساب المحول منه</option>';
+        toAccount.innerHTML = '<option value="">اختر الحساب المحول إليه</option>';
+        
+        // Populate account options
+        bankData.forEach(member => {
+            const option = document.createElement('option');
+            option.value = member.title;
+            option.textContent = `${member.title} (${member.balance})`;
+            fromAccount.appendChild(option.cloneNode(true));
+            toAccount.appendChild(option);
+        });
+
+        transferPanel.show();
+    }
+
+    // Handle transfer form submission
+    document.getElementById("transferForm").addEventListener("submit", async function(e) {
+        e.preventDefault();
+        const fromTitle = document.getElementById("fromAccount").value;
+        const toTitle = document.getElementById("toAccount").value;
+        const amount = parseInt(document.getElementById("transferAmount").value);
+
+        const fromMember = bankData.find(m => m.title === fromTitle);
+        const toMember = bankData.find(m => m.title === toTitle);
+
+        if (!fromMember || !toMember) {
+            showNotification("خطأ في اختيار الحسابات", "error");
+            return;
+        }
+
+        if (fromMember.balance < amount) {
+            showNotification("رصيد غير كافٍ للتحويل", "error");
+            return;
+        }
+
+        fromMember.balance -= amount;
+        toMember.balance += amount;
+
+        fromMember.level = Math.floor(fromMember.balance / 2000) + 1;
+        toMember.level = Math.floor(toMember.balance / 2000) + 1;
+
+        addTransaction(`تحويل من ${fromTitle} إلى ${toTitle}`, amount);
+        await saveData(); // Save data after transfer
+        updateAllData();
+        showNotification("تم التحويل بنجاح", "success");
+        document.getElementById("transferForm").reset();
+    });
+
     // Add transaction to history
     function addTransaction(description, amount) {
         const transaction = {
@@ -496,8 +573,7 @@
             date: new Date().toLocaleString('ar-SA')
         };
         transactionHistory.unshift(transaction);
-        saveData(); // Save transaction history
-        updateTransactionHistory();
+        updateTransactionHistory(); // Update UI
     }
 
     // Update transaction history display
@@ -519,15 +595,19 @@
     // Update all data and UI components
     function updateAllData() {
         populateBankTable();
+        populateLeaderboard();
         updateTransactionHistory();
     }
 
-    // استدعاء الدالة عند تحميل الصفحة
-    document.addEventListener('DOMContentLoaded', async () => {
-        await fetchData();
-        await fetchTransactions();
-    });
+    // Initialize the app
+    async function initApp() {
+        await fetchData(); // جلب البيانات من Firestore عند بدء التطبيق
+    }
+
+    // Call initApp when the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', initApp);
 </script>
+
 
 
 
