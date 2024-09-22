@@ -368,7 +368,7 @@
 <script type="module">
     // استيراد الوظائف من SDK
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-app.js";
-    import { getFirestore, collection, getDocs, setDoc, doc } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore.js";
+    import { getFirestore, collection, getDocs, setDoc, doc, writeBatch } from "https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore.js";
 
     // إعداد Firebase
     const firebaseConfig = {
@@ -409,16 +409,6 @@
         await batch.commit();
     }
 
-    // جلب تاريخ المعاملات
-    async function fetchTransactions() {
-        const querySnapshot = await getDocs(collection(db, "transactionHistory"));
-        transactionHistory = [];
-        querySnapshot.forEach((doc) => {
-            transactionHistory.push(doc.data());
-        });
-        updateTransactionHistory();
-    }
-
     // Populate bank table
     function populateBankTable() {
         const tableBody = document.querySelector("#bankTable tbody");
@@ -438,6 +428,12 @@
             `;
             tableBody.appendChild(row);
         });
+    }
+
+    // Show admin panel
+    function showAdminPanel() {
+        const adminPanel = new bootstrap.Modal(document.getElementById('adminPanel'));
+        adminPanel.show();
     }
 
     // Handle admin form submission
@@ -492,6 +488,18 @@
         document.getElementById("adminForm").reset();
     });
 
+    // Add transaction to history
+    function addTransaction(description, amount) {
+        const transaction = {
+            description,
+            amount,
+            date: new Date().toLocaleString('ar-SA')
+        };
+        transactionHistory.unshift(transaction);
+        saveData(); // Save transaction history
+        updateTransactionHistory();
+    }
+
     // Update transaction history display
     function updateTransactionHistory() {
         const historyContainer = document.getElementById("transactionHistory");
@@ -520,6 +528,7 @@
         await fetchTransactions();
     });
 </script>
+
 
 
 </body>
